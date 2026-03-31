@@ -1,86 +1,7 @@
 import requests
 import json
 import sys
-import re
-import os
-
-def read_file(file_path):
-    try:
-        with open(file_path, 'r', encoding='utf-8') as f:
-            return f.read()
-    except Exception as e:
-        return f"Error reading file {file_path}: {e}"
-
-def write_file(file_path, content):
-    try:
-        with open(file_path, 'w', encoding='utf-8') as f:
-            f.write(content)
-        return f"Successfully wrote to {file_path}"
-    except Exception as e:
-        return f"Error writing file {file_path}: {e}"
-
-def append_file(file_path, content):
-    try:
-        with open(file_path, 'a', encoding='utf-8') as f:
-            f.write(content)
-        return f"Successfully appended to {file_path}"
-    except Exception as e:
-        return f"Error appending file {file_path}: {e}"
-
-def process_tool_calls(response_text):
-    results = []
-    has_tools = False
-    
-    # 1. <tool_call> 태그 추출 시도
-    pattern_tag = r"<tool_call>\s*(.*?)\s*</tool_call>"
-    matches_tag = list(re.finditer(pattern_tag, response_text, re.DOTALL))
-    
-    json_strings = []
-    if matches_tag:
-        for match in matches_tag:
-            json_strings.append(match.group(1).strip())
-    else:
-        # 2. 마크다운 json 블록 시도 (```json ... ```)
-        pattern_md = r"```json\s*(.*?)\s*```"
-        matches_md = list(re.finditer(pattern_md, response_text, re.DOTALL))
-        if matches_md:
-            for match in matches_md:
-                text = match.group(1).strip()
-                if '"name"' in text:
-                    json_strings.append(text)
-        else:
-            # 3. 전체 응답이 단일 JSON 형태일 경우 시도
-            text = response_text.strip()
-            if text.startswith("{") and text.endswith("}") and '"name"' in text:
-                json_strings.append(text)
-            
-    for json_str in json_strings:
-        try:
-            tool_data = json.loads(json_str)
-            if "name" in tool_data and "arguments" in tool_data:
-                has_tools = True
-                name = tool_data.get("name")
-                args = tool_data.get("arguments", {})
-                
-                print(f"\n[🛠️ 시스템 도구가 실행됩니다: {name}({args})]")
-                
-                if name == "read_file":
-                    res = read_file(args.get("file_path"))
-                elif name == "write_file":
-                    res = write_file(args.get("file_path"), args.get("content"))
-                elif name == "append_file":
-                    res = append_file(args.get("file_path"), args.get("content"))
-                else:
-                    res = f"알 수 없는 도구: {name}"
-                    
-                results.append(f"도구 실행결과 ({name}):\n{res}")
-        except json.JSONDecodeError as e:
-            # 파싱에 실패하면 무시하거나 시스템에 알림
-            pass
-        except Exception as e:
-            results.append(f"도구 실행 중 치명적 오류: {e}")
-            
-    return has_tools, results
+from file_tools import process_tool_calls
 
 def main():
     model_name = "qwen2.5-coder:7b"
@@ -103,6 +24,7 @@ def main():
 1. "read_file": 파일을 읽습니다. 인자: {"file_path": "./대상 파일 경로"}
 2. "write_file": 파일에 새 내용을 씁니다(덮어쓰기). 인자: {"file_path": "./대상 파일 경로", "content": "새로 쓸 내용"}
 3. "append_file": 기존 파일 끝에 내용을 추가합니다. 인자: {"file_path": "./대상 파일 경로", "content": "추가할 내용"}
+4. "fetch_webpage": 인터넷 웹페이지에 접속하여 텍스트 내용을 읽어옵니다. 인자: {"url": "접속할 웹사이트 전체 주소(예: https://web.kangnam.ac.kr/)"}
 
 **매우 중요한 규칙 (반드시 지킬 것):**
 - 파일 경로는 무조건 현재 디렉토리('./')를 기준으로 상대 경로로 작성하세요. 절대 경로('/test' 등)는 사용하지 마세요!
