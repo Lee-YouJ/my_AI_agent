@@ -47,7 +47,15 @@ def main():
             messages.append({"role": "user", "content": user_input})
             
             # 도구 사용 요청이 있을 경우 AI가 여러 번 연속해서 동작할 수 있도록 연속 호출(Chaining) 루프 처리
+            tool_step_count = 0
+            repeated_call_count = 0
+            last_call_signature = ""
             while True:
+                tool_step_count += 1
+                if tool_step_count > 8:
+                    print("⚠️ 도구 호출이 비정상적으로 길어져 안전하게 중단합니다. (max 8 steps)")
+                    break
+
                 response = ollama.chat(
                     model=model_name,
                     messages=messages,
@@ -108,7 +116,17 @@ def main():
                 tool_call = parsed_tool_calls[0]
                 function_name = tool_call["name"]
                 arguments = tool_call["arguments"]
-                tool_id = tool_call.get("id")
+
+                # 같은 도구+인자를 반복 호출하면 무한 루프로 판단
+                call_signature = f"{function_name}:{json.dumps(arguments, ensure_ascii=False, sort_keys=True)}"
+                if call_signature == last_call_signature:
+                    repeated_call_count += 1
+                else:
+                    repeated_call_count = 0
+                    last_call_signature = call_signature
+                if repeated_call_count >= 2:
+                    print("⚠️ 동일한 도구 호출이 반복되어 루프를 중단합니다.")
+                    break
                 
                 print(f"\n[🛠️ 시스템 도구가 실행됩니다: {function_name}]")
                 # 인자 출력 시 가독성 위해 요약
@@ -157,22 +175,23 @@ def main():
                                .replace('\r', '')       # 캐리지 리턴 제거
                                .replace('\t', ' '))     # 탭은 공백으로
                 
-                # 결과 메시지 생성
+                # Ollama 공식 형식: role=tool 에는 tool_name 필수. 'name'은 pydantic 검증 시 제거됨.
                 tool_response: dict[str, str] = {
                     "role": "tool",
+                    "tool_name": str(function_name),
                     "content": safe_result,
                 }
-                # 가급적 name이나 tool_call_id 포함 (모델/버전에 따라 다를 수 있음)
-                if tool_id and isinstance(tool_id, str):
-                    tool_response["tool_call_id"] = tool_id
-                else:
-                    tool_response["name"] = str(function_name)
                     
                 messages.append(tool_response)
                 
                 # 결과 출력 (사용자 피드백)
                 display_result = safe_result[:100] if len(safe_result) > 100 else safe_result
                 print(f"   결과: {display_result}...")
+
+                # 파일 저장이 성공하면 해당 요청은 완료된 것으로 보고 종료
+                if function_name in ("write_file", "append_file") and str(result).startswith("Successfully"):
+                    print("🤖 에이전트: 파일 저장이 완료되었습니다.")
+                    break
 
 
                     
